@@ -109,7 +109,9 @@ a continuous bandpass crest measurement: Hann-windowing raises the crest of a
 stationary sine from 3.01 to about 7.27 dB. Boundary leakage affects weak bands.
 These values are heuristic comparisons only; silence gives null.
 
-This is not a claim of full EBU conformance. No EBU dataset was downloaded.
+This is not a claim of full EBU conformance. The optional official EBU v05
+local audit is documented in [`scripts/EBU_VALIDATION.md`](scripts/EBU_VALIDATION.md);
+its audio and generated results remain outside this repository.
 Intentional breaks never automatically fail: only level-1 target comparisons
 produce verdicts, not arrangement heuristics.
 
