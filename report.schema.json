@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "audio-diag v1 report",
+  "type": "object",
+  "required": ["tool", "version", "file", "thresholds", "level1", "level2", "level3", "intentional_decisions", "warnings", "verdicts"],
+  "properties": {
+    "tool": {"const": "audio-diag"},
+    "version": {"type": "string"},
+    "file": {
+      "type": "object",
+      "required": ["path", "sha256", "sample_rate", "channels", "duration_s", "lossy_source"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "path": {"type": "string"},
+        "sample_rate": {"type": "integer", "minimum": 1},
+        "channels": {"type": "integer", "minimum": 1},
+        "duration_s": {"type": "number", "minimum": 0},
+        "lossy_source": {"type": "boolean"}
+      }
+    },
+    "thresholds": {"type": "object", "additionalProperties": {"type": "number"}},
+    "level1": {"type": "object", "required": ["loudness", "peaks", "clipping", "dc_offset", "silence", "bands", "spectral_slope", "stereo"]},
+    "level2": {
+      "type": "object",
+      "required": ["energy_drops", "kick_onset_deviation", "section_contrast", "crest_factor"],
+      "additionalProperties": {"type": "object", "required": ["confidence", "warning", "status"], "properties": {"confidence": {"const": "heuristic"}, "warning": {"type": "string"}}}
+    },
+    "level3": {
+      "type": "object",
+      "required": ["kick_fundamental", "kick_envelope", "kick_rumble_ratio", "sub_masking", "key"],
+      "additionalProperties": {"type": "object", "required": ["status", "reason"], "additionalProperties": false, "properties": {"status": {"const": "not_determinable"}, "reason": {"type": "string"}}}
+    },
+    "intentional_decisions": {"type": "array", "items": {"type": "object", "required": ["text", "note"]}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "verdicts": {"type": "object"}
+  },
+  "additionalProperties": false
+}

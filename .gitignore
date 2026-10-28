@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.corpus/
+corpus_out/
+*.wav
+*.flac
+*.opus
+*.mp3
+.venv/
+data/phase4/
+
+# Generated reports and logs (keep schemas, templates, and tests).
+/reports/
+*.log
+/report.json
+/report.md
+/*-report.json
+/*-report.md
+
+# Local secrets and agent histories.
+.env
+.env.*
+!.env.example
+/.hermes/
+/.opencode/
