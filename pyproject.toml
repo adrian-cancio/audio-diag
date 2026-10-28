@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-diag"
+version = "0.1.0"
+description = "Stereo-master audio diagnostics with explicit reliability tiers (Level 1, Level 2, Level 3)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Adrián Cancio" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
+dependencies = [
+    "numpy",
+]
+
+[project.scripts]
+audio-diag = "audio_diag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["audio_diag*"]
+
+[tool.setuptools.package-data]
+audio_diag = ["report.schema.json"]

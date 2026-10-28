@@ -17,7 +17,7 @@ from . import corpus  # noqa: E402
 _CORPUS_DIR: Optional[str] = None
 _MANIFEST: Optional[dict] = None
 
-REAL_DIR = "/home/cancio/Música/OMNi"
+REAL_DIR = os.environ.get("AUDIO_DIAG_TEST_MUSIC_DIR", os.path.expanduser("~/Música/OMNi"))
 REAL_FILES = {
     "master": REAL_DIR + "/Projects/02 - Schranz Hard Techno (158 BPM)/master.wav",
     "melodic": REAL_DIR + "/User Library/Samples/Synths/Melodic Schranz/MS Melodic Schranz Project (Live 11).wav",

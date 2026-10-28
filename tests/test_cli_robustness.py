@@ -95,9 +95,30 @@ class TestOutputSafety(unittest.TestCase):
                     self.assertEqual(read(src, "rb"), before)
 
     def test_refuses_output_under_music_dir(self):
-        p = cli("analyze", item_path("silence"), "--json", "/home/cancio/Música/should_not_exist.json")
+        from audio_diag.safety import get_protected_dirs
+        protected_list = get_protected_dirs()
+        self.assertTrue(len(protected_list) > 0)
+        target = os.path.join(protected_list[0], "should_not_exist.json")
+        p = cli("analyze", item_path("silence"), "--json", target)
         self.assertEqual(p.returncode, 2)
-        self.assertFalse(os.path.exists("/home/cancio/Música/should_not_exist.json"))
+        self.assertFalse(os.path.exists(target))
+
+    def test_refuses_output_under_env_protected_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            target = os.path.join(td, "forbidden.json")
+            env = dict(os.environ, AUDIO_DIAG_PROTECTED_DIRS=td)
+            p = subprocess.run([sys.executable, "-m", "audio_diag", "analyze", item_path("silence"),
+                                "--json", target], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(p.returncode, 2)
+            self.assertFalse(os.path.exists(target))
+
+    def test_schema_cli_and_load(self):
+        p = cli("schema")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        d = json.loads(p.stdout)
+        self.assertEqual(d.get("title"), "audio-diag v1 report")
+        from audio_diag import load_schema
+        self.assertEqual(load_schema().get("title"), "audio-diag v1 report")
 
     def test_input_unchanged_after_analysis(self):
         with tempfile.TemporaryDirectory() as td:

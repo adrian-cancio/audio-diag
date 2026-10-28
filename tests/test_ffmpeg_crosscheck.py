@@ -6,7 +6,7 @@ is NOT an independent proof of correctness. Absolute correctness is covered by
 ``test_corpus_expected`` (analytic values) and ``test_ebu_tech3341`` (values
 from the standard's test descriptions).
 
-Real files under /home/cancio/Música are only ever opened read-only by ffmpeg
+Real local audio files are only ever opened read-only by ffmpeg
 and by the decoder.
 """
 

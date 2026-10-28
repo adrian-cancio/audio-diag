@@ -23,3 +23,8 @@ data/phase4/
 !.env.example
 /.hermes/
 /.opencode/
+
+# Python packaging build artifacts
+build/
+dist/
+*.egg-info/

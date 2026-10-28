@@ -9,7 +9,7 @@ import sys
 
 from .analyze import DEFAULT_THRESHOLDS, analyze
 from .decode import DecodeError
-from .report import to_markdown
+from .report import load_schema, to_markdown
 from .safety import OutputRefused, check_output_path, write_text_atomic
 
 
@@ -36,6 +36,7 @@ def build_parser():
                    help='maximum true peak in dBTP')
     a.add_argument('--silence-dbfs', type=float, default=DEFAULT_THRESHOLDS['silence_dbfs'])
     a.add_argument('--drop-db', type=float, default=DEFAULT_THRESHOLDS['energy_drop_db'])
+    sub.add_parser('schema', help='print report JSON schema')
     return p
 
 
@@ -44,6 +45,10 @@ def main(argv=None):
         args = build_parser().parse_args(argv)
     except SystemExit as e:
         return 2 if e.code not in (0, None) else 0
+    if args.command == 'schema':
+        schema = load_schema()
+        sys.stdout.write(json.dumps(schema, indent=2) + '\n')
+        return 0
     try:
         for out in (args.json, args.md):
             if out:

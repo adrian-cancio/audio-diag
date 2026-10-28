@@ -1,4 +1,27 @@
-"""Markdown rendering of an analyze() result."""
+"""Markdown rendering and schema access for analyze() results."""
+import json
+import os
+from importlib import resources
+
+
+def load_schema() -> dict:
+    """Load the JSON Schema for the audio-diag report dictionary.
+
+    Prefers 'report.schema.json' in the current working directory if present,
+    falling back to the bundled package resource data.
+    """
+    cwd_path = os.path.join(os.getcwd(), 'report.schema.json')
+    if os.path.isfile(cwd_path):
+        with open(cwd_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    try:
+        ref = resources.files('audio_diag').joinpath('report.schema.json')
+        with ref.open('r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        fallback = os.path.join(os.path.dirname(__file__), 'report.schema.json')
+        with open(fallback, 'r', encoding='utf-8') as f:
+            return json.load(f)
 
 
 def _f(v, nd=2, unit=''):

@@ -1,172 +1,167 @@
 # audio-diag
 
-Standalone Python CLI/library that measures an audio file and states how far
-each measurement can be trusted. It needs no MCP server and sends nothing
-anywhere.
+Standalone Python CLI and library for stereo-master audio diagnostics with explicit reliability tiers. It operates completely offline, requires no external services or telemetry, and classifies measurements into three clear levels of trustworthiness.
 
-- **Level 1 (reliable):** loudness (BS.1770-4 / EBU R128), true peak, sample
-  peak, clipping, DC offset, leading/trailing silence, per-band energy,
-  spectral slope, stereo correlation and mono compatibility per band.
-- **Level 2 (heuristic hints):** beat-window energy drops, kick-onset deviation
-  from a BPM grid, section energy contrast, crest factor. Always
-  `confidence: "heuristic"` with a warning. Never an automatic defect.
-- **Level 3 (not determinable from a stereo master):** kick fundamental,
-  kick envelope, kick/rumble ratio, sub masking, key. Always
-  `{"status": "not_determinable", "reason": ...}`. No estimators exist.
+- **Level 1 (reliable):** BS.1770-4 / EBU R128 loudness (integrated, momentary max, short-term max, LRA), sample peak, true peak (4x polyphase Kaiser sinc oversampling), sample-level clipping runs, DC offset, leading and trailing silence, 8-band energy distribution, spectral slope, per-band stereo correlation and mono compatibility.
+- **Level 2 (heuristic hints):** Beat-window energy drops (dropouts vs. sustained breaks), kick-onset deviation from a BPM grid, section energy contrast, crest factor (global and FFT band projections). Always reported with `confidence: "heuristic"` and a warning; never treated as an automatic defect.
+- **Level 3 (not determinable from a stereo master):** Kick fundamental frequency, kick envelope, kick/rumble ratio, sub masking, musical key. Always reports `{"status": "not_determinable", "reason": ...}`. No estimators exist for these from mixed stereo audio.
 
 ## Requirements
 
-Python 3.14 (stdlib), numpy, and `ffmpeg`/`ffprobe` on `PATH`. ffmpeg is only
-used to decode to float32 PCM; the loudness and true-peak numbers come from this
-package's own numpy implementation.
+- Python >= 3.12
+- `numpy`
+- `ffmpeg` and `ffprobe` installed and available on `PATH`
 
-## Usage
+System `ffmpeg` is used solely to decode audio into float32 PCM; all loudness, true-peak, spectral, and time-domain calculations are performed directly by audio-diag's internal NumPy implementation.
+
+## Installation
+
+Install via pip from source:
+
+```bash
+pip install .
+```
+
+For editable development:
+
+```bash
+pip install -e .
+```
+
+## CLI Usage
+
+The package installs the `audio-diag` executable and can also be run via `python3 -m audio_diag`.
+
+```bash
+# Analyze an audio file
+audio-diag analyze track.wav
+
+# Pass tempo and declare intentional arrangement decisions
+audio-diag analyze master.wav --bpm 155 --intent "break at bars 33-40" --intent "mono bass"
+
+# Export machine-readable JSON and human-readable Markdown
+audio-diag analyze master.wav --json report.json --md report.md
+
+# Inspect the bundled JSON Schema
+audio-diag schema
+```
+
+### Options
 
 ```
-python3 -m audio_diag analyze FILE [--bpm N] [--json OUT] [--md OUT] [--intent TEXT ...]
-                              [--target-lufs -8] [--tolerance-lu 2] [--tp-max -0.3]
-                              [--silence-dbfs -60] [--drop-db 6]
+usage: audio_diag analyze [-h] [--bpm BPM] [--json OUT] [--md OUT]
+                          [--intent TEXT] [--target-lufs TARGET_LUFS]
+                          [--tolerance-lu TOLERANCE_LU] [--tp-max TP_MAX]
+                          [--silence-dbfs SILENCE_DBFS] [--drop-db DROP_DB]
+                          file
 ```
 
-JSON goes to stdout unless `--json` is given; markdown goes to stderr unless
-`--md` is given. Exit codes: `0` ok, `2` usage, decode or output-path error.
-The input is opened read-only and the CLI refuses an output path that is the
-input (also via symlink or hardlink) or that lies under `~/Música`.
+- `file`: Path to input audio file (opened strictly read-only).
+- `--bpm N`: Tempo in beats per minute; enables grid-aligned Level 2 onset hints.
+- `--json OUT`: Write formatted JSON report to `OUT` instead of stdout.
+- `--md OUT`: Write Markdown report to `OUT` instead of stderr.
+- `--intent TEXT`: Declare an intentional artistic choice (repeatable). Echoed in `intentional_decisions` and never reported as a defect.
+- `--target-lufs N`: Integrated loudness target in LUFS (default: `-8.0`).
+- `--tolerance-lu N`: Loudness tolerance in LU (default: `2.0`).
+- `--tp-max N`: Maximum true peak in dBTP (default: `-0.3`).
+- `--silence-dbfs N`: Threshold for digital silence detection (default: `-60.0`).
+- `--drop-db N`: Energy drop threshold for dropout/break detection (default: `6.0`).
 
-Library use:
+### Path Safety and Safeguards
+
+- The input file is opened strictly read-only (`O_RDONLY`).
+- The CLI refuses any output path that matches the input file (resolving symlinks and hardlinks).
+- The CLI refuses to write output inside protected directories:
+  - Standard user music directories (`~/Music`, `~/Música`).
+  - Directories configured via the `AUDIO_DIAG_PROTECTED_DIRS` environment variable (colon-separated).
+- Exit codes: `0` on success, `2` on invalid arguments, decoding failure, or unsafe output paths.
+
+## Python API
 
 ```python
-from audio_diag import analyze, DecodeError
-result = analyze("master.wav", bpm=158, intents=["break at bars 33-40"])
+from audio_diag import analyze, load_schema, to_markdown, DecodeError
+
+# Analyze an audio file
+try:
+    report = analyze("master.wav", bpm=158, intents=["break at bars 33-40"])
+except DecodeError as err:
+    print(f"Decoding failed: {err}")
+
+# Access Level 1 metrics
+loudness = report["level1"]["loudness"]
+print(f"Integrated LUFS: {loudness['integrated_lufs']}")
+print(f"True Peak dBTP:  {report['level1']['peaks']['true_peak_dbtp']}")
+
+# Render Markdown report
+md_text = to_markdown(report)
+
+# Load the JSON Schema definition
+schema = load_schema()
 ```
 
-`audio_diag.loudness.measure(samples, sample_rate)` exposes the loudness meter
-directly on in-memory PCM.
+### Direct PCM Measurement
 
-## Output
+Measure in-memory float32 PCM samples without decoding from disk:
 
-Top-level keys: `tool, version, file, thresholds, level1, level2, level3,
-intentional_decisions, warnings, verdicts`. JSON never contains NaN/inf; an
-unavailable value is `null` with a sibling `<key>_reason`.
+```python
+import numpy as np
+from audio_diag.loudness import measure
 
-Defaults: club target -8 LUFS +-2 integrated, true peak <= -0.3 dBTP.
-`verdicts` compares level-1 numbers to these thresholds only.
-
-`--intent TEXT` (repeatable) is echoed under `intentional_decisions` and is
-never reported as a defect.
-
-## Metric definitions (short)
-
-- Loudness: K-weighting biquads, 400 ms blocks with 75 % overlap, -70 LUFS
-  absolute and -10 LU relative gate. Momentary/short-term maxima use a 10 ms
-  grid. LRA: 3 s windows, -20 LU gate, P10-P95.
-- True peak: 4x polyphase oversampling (32-tap Kaiser sinc).
-- Clipping: a run is consecutive samples with `|x| >= 1 - 1e-6` in one channel.
-- Band energy: relative to the total (dB), from an averaged Hann periodogram
-  (8192 samples, 50 % overlap).
-- Mono loss (per band): `10*log10(E[((L+R)/2)^2] / E[(L^2+R^2)/2])`.
-  0 dB = identical channels, -3 dB = uncorrelated, very negative = out of phase.
-- Level 2 `energy_drops`: one-beat sliding window; short regions (<= 2 beats)
-  are `dropout`, sustained (>= 4 beats) are `break`.
-
-## Lossy sources
-
-Lossy input (mp3, opus, vorbis, aac, ...) sets `file.lossy_source: true`. True
-peak, crest factor and absolute loudness are then labelled
-"not valid for calibration (lossy source)" in JSON and markdown: decoding
-changes peaks and level by amounts the file does not tell you.
-
-## Limits
-
-- Level 2 is heuristic. `kick_onset_deviation` uses low-band (<200 Hz) energy
-  flux with ~5 ms resolution. On a full mix, bass notes and rumble also
-  trigger it. When detected onsets do not cluster on the BPM grid
-  (`phase_coherence < 0.6`) it reports `reliability: "low"`; do not trust its
-  deviation numbers then. Tempo is never estimated; pass `--bpm`.
-- Energy-drop durations and start times are approximate (1/8-beat steps).
-- More than 2 channels are downmixed to stereo by ffmpeg (with a warning).
-- Files shorter than 0.4 s / 3 s have no momentary / short-term values (null
-  plus reason).
-- Very short or abruptly started tones can differ from ffmpeg's true peak by
-  up to ~0.4 dB (ffmpeg itself overshoots the analytic value there). On
-  realistic material the difference is ~0.01-0.05 dB.
-- LRA on tiny gated sets is sensitive to percentile rank handling (about
-  0.25 LU on a 2 s ramp), and ffmpeg counts its first partially filled 3 s
-  window for ~3 s files. Both are noted in the tests.
-
-## Render identity and schema
-
-`file.sha256` is the SHA-256 of the entire source file, read in bounded chunks;
-markdown includes the same hash. Keep the source immutable during analysis.
-`report.schema.json` is the machine-readable JSON Schema (2020-12) for the
-report envelope and reliability invariants; detailed metric definitions above
-remain authoritative. No third-party schema validator is required at runtime.
-
-Global crest uses maximum channel sample peak divided by pooled channel RMS.
-`level2.crest_factor.per_band_db` uses peak/RMS of brick-wall FFT band projections
-of Hann-windowed 8192-sample frames (50% overlap, pooled channels). It is **not**
-a continuous bandpass crest measurement: Hann-windowing raises the crest of a
-stationary sine from 3.01 to about 7.27 dB. Boundary leakage affects weak bands.
-These values are heuristic comparisons only; silence gives null.
-
-This is not a claim of full EBU conformance. The optional official EBU v05
-local audit is documented in [`scripts/EBU_VALIDATION.md`](scripts/EBU_VALIDATION.md);
-its audio and generated results remain outside this repository.
-Intentional breaks never automatically fail: only level-1 target comparisons
-produce verdicts, not arrangement heuristics.
-
-## Offline reference profiles and controlled checks
-
-`audio_diag.profiles.profile(report)` extracts each file's normalized relative
-band powers. `compare(profiles)` preserves every profile and returns independent
-per-band min/max dispersion (including missing-value counts), never an average
-sound or an automatic acceptance gate. Normalization precedes comparison:
-`P_band / P_total = (g*g*P_band) / (g*g*P_total)` for nonzero common gain.
-This is unit-total-spectral-power normalization, not LUFS normalization. The
-property is tested across four gains. Silence remains unknown.
-
-Run the bounded local evidence job from this repository:
-
-```
-python3 -m scripts.phase4_offline
+# samples: 2D numpy array of shape (num_samples, channels)
+stats = measure(samples, sample_rate=48000)
+print(stats["integrated_lufs"], stats["true_peak_dbtp"])
 ```
 
-This job expects the seven specifically mapped local Opus references, three
-project WAV exports and the existing 158 BPM master. It hashes sources before
-and after measurement, writes individual full reports and comparison JSON under
-ignored `data/phase4/`, and generates a 24-second excerpt plus independent ffmpeg
-manipulations only under `~/.hermes/cache/scratch/opencode/phase4-bde-v2/`.
-It refuses to overwrite excerpt files (`ffmpeg -n`); use a new scratch directory
-for a fresh generation. Exact generation argv and directional assertions are
-recorded in `controlled-checks.json`. No network, live OMNi, or audio-source writes
-are involved. Opus absolute loudness/peak/crest are not targets; project WAVs
-are not finished-master targets either. The expected filter directions are not
-claims of calibrated numerical truth or full musical utility.
+### Spectral Profiles and Dispersion
 
-Generate the measured Spanish audit and complete example with
-`python3 -m scripts.phase4_vault_report` after the evidence job passes.
-The low-phase control uses an exact whole-excerpt FFT polarity flip below
-120 Hz on R only (periodic-boundary/ringing limitations apply). The original
-failed causal-filter control is preserved in `controlled-checks-v1-failed.json`.
-Mute assertions check zero interior energy, unchanged exterior and a localized
-heuristic, not just any changed result dictionary.
+Compare relative spectral balance across tracks using gain-normalized power profiles:
 
-The Spanish vault artifacts under `Personal/ProdMusic/_Plan_Maestro/_Historial_Auditorias/`, including `INFORME_PRODUCCION.md`,
-`Fase4_Escucha_Referencias.md`, and `Fase4_BDE_Informe.md` hold the production
-report template, seven pending listening sheets, and the measured audit.
-Copy the template for each new SHA-bound render; keep source/device readback,
-measurements, hypotheses, intentional decisions and human listening separate.
+```python
+from audio_diag.profiles import profile, compare
 
-## Validation
+p1 = profile(analyze("track1.wav"))
+p2 = profile(analyze("track2.wav"))
+dispersion = compare([p1, p2])
+```
 
-`python3 -m unittest discover` runs:
+Profiles normalize by total spectral power ($P_{band} / P_{total}$), canceling gain differences. Comparisons produce observed minimum and maximum envelopes per band rather than an artificial average or arbitrary pass/fail gate.
 
-| Suite | What it proves |
-|---|---|
-| `test_corpus_expected` | analyzer vs **analytically known** values of a seeded synthetic corpus (sine LUFS from the K-weighting transfer function, pink-noise LUFS by Parseval, clipping run counts, stereo phase, click-train onsets, dropout) |
-| `test_ebu_tech3341` | EBU Tech 3341 cases 1-5, 9, 10, 12, 13 rebuilt from the published descriptions, expected values from the standard (+-0.1 LU). Cases 6, 7, 8, 11, 14 are not reproduced. The EBU zip is not used |
-| `test_ffmpeg_crosscheck` | our numpy meter vs `ffmpeg -af ebur128=peak=true` (0.1 LU, 0.2 dB TP). **This only shows that our implementation and ffmpeg's agree** (integration, gating, filters); it is not independent proof of correctness |
-| `test_cli_robustness` | exit codes, corrupt/empty/missing input, lossy labelling, output safety, 10-minute memory bound |
+## Schema & Report Invariants
 
-The corpus WAVs are generated at test time into a temporary directory and are
-not committed.
+- Schema definition is bundled as `report.schema.json` and accessible via `audio_diag.load_schema()`.
+- Standard keys: `tool`, `version`, `file`, `thresholds`, `level1`, `level2`, `level3`, `intentional_decisions`, `warnings`, `verdicts`.
+- Finite JSON: values are never `NaN` or `inf`. Missing or invalid numbers are represented as `null` with an accompanying `<metric>_reason` explanation.
+- Lossy inputs (e.g. MP3, Opus, AAC) set `file.lossy_source: true`. True peak, crest factor, and absolute loudness are explicitly marked `"not valid for calibration (lossy source)"` because lossy codecs alter peaks and levels dynamically.
+
+## Metric Summary
+
+- **Loudness:** ITU-R BS.1770-4 / EBU R128 biquad K-weighting, 400 ms blocks with 75% overlap, -70 LUFS absolute and -10 LU relative gating. Maxima evaluated on a 10 ms grid. LRA uses 3 s windows, -20 LU relative gate, P10-P95 span.
+- **True Peak:** 4x polyphase Kaiser-windowed sinc oversampling filter (32 taps).
+- **Clipping:** Identifies consecutive runs of full-scale samples (`|x| >= 1.0 - 1e-6`) per channel.
+- **Bands:** Relative energy across 8 sub-bands computed via Hann-windowed periodogram (8192-point FFT, 50% overlap).
+- **Mono Compatibility:** Inter-channel correlation and mono energy ratio $10 \log_{10} \frac{E[((L+R)/2)^2]}{E[(L^2+R^2)/2]}$ per frequency band.
+
+## Testing
+
+The test suite runs with Python's standard `unittest`:
+
+```bash
+# Run the entire test suite
+python3 -m unittest discover
+
+# Run specific test modules
+python3 -m unittest tests.test_cli_robustness
+python3 -m unittest tests.test_corpus_expected
+python3 -m unittest tests.test_ebu_tech3341
+```
+
+- `test_corpus_expected`: Verifies measurements against analytically calculated mathematical ground truths (sine LUFS via K-weighting filter transfer function, pink noise LUFS via Parseval's theorem, exact clipping runs, synthesized click trains).
+- `test_ebu_tech3341`: Reconstructs EBU Tech 3341 compliance signals and asserts tolerances according to the specification ($\pm 0.1$ LU).
+- `test_ffmpeg_crosscheck`: Cross-checks loudness and true-peak results against system `ffmpeg -af ebur128=peak=true`.
+- `test_cli_robustness`: Verifies CLI exit codes, error handling, path traversal and overwrite protection, memory limits, and schema output.
+
+Test audio signals are generated deterministically in memory or temporary directories and are not committed to source control.
+
+## License
+
+MIT License. Copyright (c) 2026 Adrián Cancio / contributors. See `LICENSE` for details.

@@ -1,7 +1,33 @@
-"""Output-path safeguards: never overwrite the input, never write under the music library."""
+"""Output-path safeguards: never overwrite the input, never write under protected music directories."""
 import os
 
-PROTECTED_DIRS = ('/home/cancio/Música',)
+
+def get_protected_dirs() -> tuple[str, ...]:
+    """Return configured and standard protected directories where output must not be written.
+
+    Configured via AUDIO_DIAG_PROTECTED_DIRS (os.pathsep-separated list of paths),
+    XDG_MUSIC_DIR, and standard user music folders (~/Música, ~/Music).
+    """
+    dirs: list[str] = []
+    env = os.environ.get('AUDIO_DIAG_PROTECTED_DIRS')
+    if env:
+        for p in env.split(os.pathsep):
+            p = p.strip()
+            if p and p not in dirs:
+                dirs.append(p)
+    xdg_music = os.environ.get('XDG_MUSIC_DIR')
+    if xdg_music and xdg_music not in dirs:
+        dirs.append(xdg_music)
+    for std in (os.path.expanduser('~/Música'), os.path.expanduser('~/Music')):
+        if os.path.isdir(std) and std not in dirs:
+            dirs.append(std)
+    for std in (os.path.expanduser('~/Música'), os.path.expanduser('~/Music')):
+        if std not in dirs:
+            dirs.append(std)
+    return tuple(dirs)
+
+
+PROTECTED_DIRS = get_protected_dirs()
 
 
 class OutputRefused(ValueError):
@@ -9,7 +35,10 @@ class OutputRefused(ValueError):
 
 
 def _under(path, root):
-    root = os.path.realpath(root)
+    if not root:
+        return False
+    root = os.path.realpath(os.path.expanduser(root))
+    path = os.path.realpath(os.path.expanduser(path))
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
@@ -24,7 +53,7 @@ def check_output_path(output, input_path):
         raise OutputRefused(f'output path is a directory: {out}')
     if real_out == real_in:
         raise OutputRefused(f'refusing to overwrite the input file: {out}')
-    for protected in PROTECTED_DIRS:
+    for protected in get_protected_dirs():
         for candidate in (real_out, os.path.abspath(out)):
             if _under(candidate, protected) or _under(os.path.normcase(candidate), protected):
                 raise OutputRefused(f'refusing to write under protected directory {protected}: {out}')
